@@ -55,6 +55,7 @@ def english_score_byte(b):
     if b < 32 or b > 126:
         return log10(1e-10)
     
+    # standard non-alpha ascii characters
     return log10(1e-6)
 
 def english_score(bs):
@@ -79,3 +80,15 @@ def find_single_byte_xor_encryption(byte_arrays):
     return sorted([(i, bs) + decrypt_single_byte_xor(bs) for i, bs in enumerate(byte_arrays)],
                   key = lambda x: english_score(x[3]),
                   reverse = 1)[0]
+
+
+# 1.5
+def repeating_key_xor(bs, key):
+    '''Encrypts a byte array using repeating-key (byte array) XOR'''
+    key_multiplier = len(bs) / len(key) + 1
+    repeated_key = (key * key_multiplier)[:len(bs)]
+    return fixed_xor(bs, repeated_key)
+    
+def repeating_strkey_xor(bs, strkey):
+    '''Encrypts a byte array using repeating-key (string) XOR'''
+    return repeating_key_xor(bs, bytearray(strkey))
