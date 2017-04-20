@@ -1,3 +1,4 @@
+import matplotlib.pyplot as plt
 import numpy as np
 from math import *
 import pandas as pd
@@ -92,3 +93,34 @@ def repeating_key_xor(bs, key):
 def repeating_strkey_xor(bs, strkey):
     '''Encrypts a byte array using repeating-key (string) XOR'''
     return repeating_key_xor(bs, bytearray(strkey))
+
+
+# 1.6
+def hamming_distance(b1, b2):
+    '''Finds the bit-wise edit distance / Hamming distance between two byte arrays'''
+    return sum(['{0:b}'.format(b).count('1') for b in fixed_xor(b1, b2)])
+
+def hamming_distance_str(s1, s2):
+    '''Finds the bit-wise edit distance / Hamming distance between two ascii-encoded strings'''
+    return hamming_distance(bytearray(s1), bytearray(s2))
+
+def base64_to_bytes(s):
+    '''Converts base64-encoded string to byte array'''
+    return bytearray(base64.b64decode(s))
+
+def find_keysize_distances(bytes, keysizes):
+    '''Returns the average Hamming distance for a given keysize'''
+    return [np.mean([hamming_distance(bytes[i*keysize:(i+1)*keysize],
+                                      bytes[(i+1)*keysize:(i+2)*keysize]) / keysize
+                     for i in xrange(len(bytes)/keysize - 1)])
+            for keysize in keysizes]
+
+def decrypt_vigenere_with_known_keysize(bytes, keysize):
+    '''Returns the most likely key and plaintext message, given a bytearray ciphertext and keysize'''
+    keys, plaintexts = zip(*[decrypt_single_byte_xor(bytes[block::keysize]) for block in xrange(keysize)])
+    return str(bytearray(keys)), str(bytearray(sum(zip(*plaintexts), ())))
+
+def decrypt_vigenere(bytes, keysizes):
+    '''Returns the most likely key and plaintext message, given a bytearray ciphertext and list of possible keysizes'''
+    optimal_keysize = keysizes[np.argmin(find_keysize_distances(bytes, keysizes))]
+    return decrypt_vigenere_with_known_keysize(bytes, optimal_keysize)
