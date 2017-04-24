@@ -124,3 +124,38 @@ def decrypt_vigenere(bytes, keysizes):
     '''Returns the most likely key and plaintext message, given a bytearray ciphertext and list of possible keysizes'''
     optimal_keysize = keysizes[np.argmin(find_keysize_distances(bytes, keysizes))]
     return decrypt_vigenere_with_known_keysize(bytes, optimal_keysize)
+
+
+# 1.7
+from Crypto.Cipher import AES
+def decrypt_AES_128_ECB(ciphertext, key):
+    '''Decrypts a ciphertext string from a known key, using AES-128 in ECB mode.'''
+    if len(key) != 16:
+        raise ValueError('Key for AES-128 must be 16 bytes')
+    return AES.new(key, AES.MODE_ECB).decrypt(ciphertext)
+
+def decrypt_AES_128_ECB_base64(ciphertext_base64, key):
+    return decrypt_AES_128_ECB(str(base64_to_bytes(ciphertext_base64)), key)
+
+
+# 1.8
+def find_ECB_encryption(ciphertexts, block_size=16):
+    '''Finds the ciphertext (in byte array format) most likely to have been encryted using ECB,
+       due to low Hamming distance between blocks.'''
+    hamming_distances = []
+    for ct in ciphertexts:
+        n_blocks = len(ct) / block_size
+        avg_distance = np.mean([hamming_distance(ct[i*block_size:(i+1)*block_size],
+                                                 ct[j*block_size:(j+1)*block_size])
+                                for i in xrange(n_blocks)
+                                for j in xrange(i)])
+        hamming_distances.append(avg_distance)
+        
+    return ciphertexts[np.argmin(hamming_distances)]
+
+
+# 2.9
+def pad_pkcs7(bytes, block_size):
+    '''Pad a byte array using the PKCS #7 scheme.'''
+    bytes_needed = block_size * int(ceil(len(bytes) / float(block_size))) - len(bytes)
+    return bytes + bytearray([bytes_needed])*bytes_needed
