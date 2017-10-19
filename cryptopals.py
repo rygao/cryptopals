@@ -159,3 +159,61 @@ def pad_pkcs7(bytes, block_size):
     '''Pad a byte array using the PKCS #7 scheme.'''
     bytes_needed = block_size * int(ceil(len(bytes) / float(block_size))) - len(bytes)
     return bytes + bytearray([bytes_needed])*bytes_needed
+
+
+# 2.10
+def encrypt_AES_128_ECB(plaintext, key):
+    BLOCK_SIZE = 16
+    '''Encrypts a plaintext string using a given key, using AES-128 in ECB mode.'''
+    if len(key) != BLOCK_SIZE:
+        raise ValueError('Key for AES-128 must be %d bytes' % BLOCK_SIZE)
+    
+    padded_plaintext = str(pad_pkcs7(plaintext, BLOCK_SIZE))
+    return AES.new(key, AES.MODE_ECB).encrypt(padded_plaintext)
+
+def encrypt_AES_128_ECB_base64(plaintext_base64, key):
+    return encrypt_AES_128_ECB(str(base64_to_bytes(plaintext_base64)), key)
+
+def encrypt_AES_128_CBC(plaintext, key, IV):
+    BLOCK_SIZE = 16
+    '''Encrypts a plaintext string using a given key (str) and IV (str), using AES-128 in CBC mode.'''
+    if len(key) != BLOCK_SIZE:
+        raise ValueError('Key for AES-128 must be %d bytes' % BLOCK_SIZE)
+        
+    if len(IV) != BLOCK_SIZE:
+        raise ValueError('IV for AES-128 in CBC mode must be %d bytes' % BLOCK_SIZE)
+    
+    AES_128_ECB = AES.new(key, AES.MODE_ECB)
+    padded_plaintext = pad_pkcs7(plaintext, BLOCK_SIZE)
+    
+    ciphertext = b''
+    for start_idx in xrange(0, len(padded_plaintext), BLOCK_SIZE):
+        block_cipher_input = fixed_xor(bytearray(IV), padded_plaintext[start_idx : start_idx+BLOCK_SIZE])
+        block_cipher_output = AES_128_ECB.encrypt(str(block_cipher_input))
+        ciphertext += block_cipher_output
+        IV = block_cipher_output
+    
+    return ciphertext
+
+def decrypt_AES_128_CBC(ciphertext, key, IV):
+    BLOCK_SIZE = 16
+    '''Decrypts a ciphertext string using a given key (str) and IV (str), using AES-128 in CBC mode.'''
+    if len(key) != BLOCK_SIZE:
+        raise ValueError('Key for AES-128 must be %d bytes' % BLOCK_SIZE)
+        
+    if len(IV) != BLOCK_SIZE:
+        raise ValueError('IV for AES-128 in CBC mode must be %d bytes' % BLOCK_SIZE)
+    
+    if len(ciphertext) % BLOCK_SIZE != 0:
+        raise ValueError('Ciphertext for AES-128 in CBC mode must be a multiple of %d bytes' % BLOCK_SIZE)
+        
+    AES_128_ECB = AES.new(key, AES.MODE_ECB)
+    
+    plaintext = b''
+    for start_idx in xrange(0, len(ciphertext), BLOCK_SIZE):
+        block_cipher_input = ciphertext[start_idx : start_idx+BLOCK_SIZE]
+        block_cipher_output = AES_128_ECB.decrypt(str(block_cipher_input))
+        plaintext += fixed_xor(bytearray(IV), bytearray(block_cipher_output))
+        IV = block_cipher_input
+    
+    return plaintext
