@@ -155,7 +155,7 @@ def find_ECB_encryption(ciphertexts, block_size=16):
 
 
 # 2.9
-def pad_pkcs7(bytes, block_size):
+def pad_pkcs7(bytes, block_size=16):
     '''Pad a byte array using the PKCS #7 scheme.'''
     bytes_needed = block_size * int(ceil(len(bytes) / float(block_size))) - len(bytes)
     return bytes + bytearray([bytes_needed])*bytes_needed
@@ -217,3 +217,33 @@ def decrypt_AES_128_CBC(ciphertext, key, IV):
         IV = block_cipher_input
     
     return plaintext
+
+
+# 2.11
+def generate_random_bytes(length=16):
+    '''Generates a random 16-byte AES key'''
+    return ''.join(map(chr, np.random.randint(256, size=length)))
+
+def ECB_CBC_encryption_oracle(plaintext):
+    '''Oracle that randomly chooses ECB or CBC mode and encrypts with a random key and IV.'''
+    prepended_bytes = generate_random_bytes(np.random.randint(5,11))
+    appended_bytes = generate_random_bytes(np.random.randint(5,11))
+    plaintext = str(pad_pkcs7(prepended_bytes + plaintext + appended_bytes))
+    
+    key, IV = generate_random_bytes(), generate_random_bytes()
+    cipher = AES.new(key, AES.MODE_ECB) if np.random.randint(2) == 0 else AES.new(key, AES.MODE_CBC, IV=IV)
+    return cipher.encrypt(plaintext)
+
+from collections import Counter
+def detect_ECB_CBC_oracle(black_box, BLOCK_SIZE=16):
+    '''Detector that determines if a black box is encrypting using ECB or CBC.'''
+    long_repeating_string = str(hex_to_bytes('0'*128))
+    
+    ciphertext = black_box(long_repeating_string)
+    ciphertext_blocks = Counter([ciphertext[i:i+BLOCK_SIZE] for i in xrange(0,len(l),BLOCK_SIZE)])
+    ct_blocks_are_unique = max(ciphertext_blocks.values()) == 1
+    return 'CBC' if ct_blocks_are_unique else 'ECB'
+
+
+# 2.12
+
