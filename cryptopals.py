@@ -240,10 +240,56 @@ def detect_ECB_CBC_oracle(black_box, BLOCK_SIZE=16):
     long_repeating_string = str(hex_to_bytes('0'*128))
     
     ciphertext = black_box(long_repeating_string)
-    ciphertext_blocks = Counter([ciphertext[i:i+BLOCK_SIZE] for i in xrange(0,len(l),BLOCK_SIZE)])
+    ciphertext_blocks = Counter([ciphertext[i:i+BLOCK_SIZE] for i in xrange(0,len(ciphertext),BLOCK_SIZE)])
     ct_blocks_are_unique = max(ciphertext_blocks.values()) == 1
     return 'CBC' if ct_blocks_are_unique else 'ECB'
 
 
 # 2.12
+def appending_ECB_oracle(plaintext, key):
+    '''Oracle that appends a mystery string to the plaintext input before encrypting via ECB.'''
+    unknown_string = base64_to_bytes('Um9sbGluJyBpbiBteSA1LjAKV2l0aCBteSByYWctdG9wIGRvd24gc28gbXkgaGFpciBjYW4gYmxvdwpUaGUgZ2lybGllcyBvbiBzdGFuZGJ5IHdhdmluZyBqdXN0IHRvIHNheSBoaQpEaWQgeW91IHN0b3A/IE5vLCBJIGp1c3QgZHJvdmUgYnkK')
+    plaintext = str(pad_pkcs7(plaintext + unknown_string))
+    
+    return AES.new(key, AES.MODE_ECB).encrypt(plaintext)
 
+def find_unknown_string_from_appending_oracle():
+    # generate consistent but unknown key
+    consistent_unknown_key = generate_random_bytes()
+    
+    # find block size
+    BLOCK_SIZE = 1
+    while True:
+        ct = appending_ECB_oracle('A'*2*BLOCK_SIZE, consistent_unknown_key)
+        if ct[0:BLOCK_SIZE] == ct[BLOCK_SIZE:2*BLOCK_SIZE]:
+            break
+        BLOCK_SIZE += 1
+    assert(BLOCK_SIZE == 16)
+        
+    # ensure the cipher is ECB
+    assert(detect_ECB_CBC_oracle(lambda x: appending_ECB_oracle(x, consistent_unknown_key)) == 'ECB')
+    
+    # find unknown message, one byte at a time
+    hidden_string = ''
+    
+    while True:
+        idx_next_letter = len(hidden_string)
+        idx_start_of_block = idx_next_letter - idx_next_letter%BLOCK_SIZE
+        short_pt = chr(0)*(BLOCK_SIZE-1-idx_next_letter%BLOCK_SIZE)
+
+        ct_block_to_char_map = {}
+        for i in xrange(256):
+            pt = short_pt + hidden_string + chr(i)
+            ct = appending_ECB_oracle(pt, consistent_unknown_key)
+            unknown_block = ct[idx_start_of_block:idx_start_of_block+BLOCK_SIZE]
+            ct_block_to_char_map[unknown_block] = chr(i)
+
+        ct = appending_ECB_oracle(short_pt, consistent_unknown_key)
+        unknown_block = ct[idx_start_of_block:idx_start_of_block+BLOCK_SIZE]
+        if unknown_block not in ct_block_to_char_map:
+            # signals end of message because padding bytes don't match any possible
+            return hidden_string[:-1]
+        hidden_string += ct_block_to_char_map[unknown_block]
+
+
+# 2.13
