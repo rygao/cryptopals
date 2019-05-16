@@ -8,7 +8,7 @@ import base64
 
 def hex_to_bytes(h):
     '''Converts hex-encoded string to byte array'''
-    return bytearray(h.decode("hex"))
+    return bytes.fromhex(h)
 
 def bytes_to_base64(b):
     '''Converts byte array to base64-encoded string'''
@@ -16,7 +16,7 @@ def bytes_to_base64(b):
 
 def hex_to_base64(h):
     '''Converts hex-encoded string to base64-encoded string'''
-    return bytes_to_base64(hex_to_bytes(h))
+    return bytes_to_base64(hex_to_bytes(h)).decode()
 
 
 # 1.2
@@ -24,7 +24,7 @@ def fixed_xor(b1, b2):
     '''Produces the XOR combination of two equal-length byte arrays'''
     if len(b1) != len(b2):
         raise ValueError('input byte arrays must be of the same length', b1, b2)
-    return bytearray([i^j for i,j in zip(b1, b2)])
+    return bytes([i^j for i,j in zip(b1, b2)])
     
 def fixed_xor_hex(h1, h2):
     '''Produces the XOR combination of two equal-length hex-encoded strings'''
@@ -38,9 +38,9 @@ def bytes_to_hex(b):
 # 1.3
 def single_byte_xor(bs, b):
     '''Produces the XOR combination of a byte array with a single byte'''
-    return fixed_xor(bs, bytearray([b]*len(bs)))
+    return fixed_xor(bs, bytes([b]*len(bs)))
 
-df = pd.read_csv('Data/LetterFrequency.tsv', delimiter='\t')
+df = pd.read_csv('../Data/LetterFrequency.tsv', delimiter='\t')
 frequencies = {key: value for key, value in zip(df.Letter, df.Frequency)}
 
 def english_score_byte(b):
@@ -49,15 +49,15 @@ def english_score_byte(b):
     if c == ' ':
         return log10(1/5.1) # the average English word is 5.1 letters long
     
-    if str.isalpha(c):
-        return frequencies[c.lower()]
+    if c.lower() in frequencies:
+        return log10(frequencies[c.lower()])
     
     # nonstandard ascii characters
     if b < 32 or b > 126:
         return log10(1e-10)
     
     # standard non-alpha ascii characters
-    return log10(1e-6)
+    return log10(1e-4)
 
 def english_score(bs):
     '''Scores an ascii-encoded byte array, based on English letter frequencies.'''
@@ -69,8 +69,8 @@ def bytes_to_ascii(b):
 
 def decrypt_single_byte_xor(bs):
     '''Returns the most-likely key and decrypted text for a byte array encrypted with single byte XOR'''
-    return sorted([(key, single_byte_xor(bs, key)) for key in xrange(255)], \
-                  key = lambda x: english_score(x[1]), \
+    return sorted([(key, single_byte_xor(bs, key)) for key in range(255)],
+                  key = lambda x: english_score(x[1]),
                   reverse = 1)[0]
 
 
@@ -86,13 +86,13 @@ def find_single_byte_xor_encryption(byte_arrays):
 # 1.5
 def repeating_key_xor(bs, key):
     '''Encrypts a byte array using repeating-key (byte array) XOR'''
-    key_multiplier = len(bs) / len(key) + 1
+    key_multiplier = len(bs) // len(key) + 1
     repeated_key = (key * key_multiplier)[:len(bs)]
     return fixed_xor(bs, repeated_key)
     
 def repeating_strkey_xor(bs, strkey):
     '''Encrypts a byte array using repeating-key (string) XOR'''
-    return repeating_key_xor(bs, bytearray(strkey))
+    return repeating_key_xor(bs, strkey.encode())
 
 
 # 1.6
@@ -102,40 +102,41 @@ def hamming_distance(b1, b2):
 
 def hamming_distance_str(s1, s2):
     '''Finds the bit-wise edit distance / Hamming distance between two ascii-encoded strings'''
-    return hamming_distance(bytearray(s1), bytearray(s2))
+    return hamming_distance(s1.encode(), s2.encode())
 
 def base64_to_bytes(s):
     '''Converts base64-encoded string to byte array'''
-    return bytearray(base64.b64decode(s))
+    return base64.b64decode(s)
 
-def find_keysize_distances(bytes, keysizes):
+def find_keysize_distances(bs, keysizes):
     '''Returns the average Hamming distance for a given keysize'''
-    return [np.mean([hamming_distance(bytes[i*keysize:(i+1)*keysize],
-                                      bytes[(i+1)*keysize:(i+2)*keysize]) / keysize
-                     for i in xrange(len(bytes)/keysize - 1)])
+    return [np.mean([hamming_distance(bs[i*keysize:(i+1)*keysize],
+                                      bs[(i+1)*keysize:(i+2)*keysize]) // keysize
+                     for i in range(len(bs)//keysize - 1)])
             for keysize in keysizes]
 
-def decrypt_vigenere_with_known_keysize(bytes, keysize):
-    '''Returns the most likely key and plaintext message, given a bytearray ciphertext and keysize'''
-    keys, plaintexts = zip(*[decrypt_single_byte_xor(bytes[block::keysize]) for block in xrange(keysize)])
-    return str(bytearray(keys)), str(bytearray(sum(zip(*plaintexts), ())))
+def decrypt_vigenere_with_known_keysize(ciphertext, keysize):
+    '''Returns the most likely key and plaintext message, given a bytearray ciphertext and known keysize'''
+    keys, plaintexts = zip(*[decrypt_single_byte_xor(ciphertext[block::keysize]) for block in range(keysize)])
+    return bytes(keys).decode(), bytes(sum(zip(*plaintexts), ())).decode()
 
-def decrypt_vigenere(bytes, keysizes):
+def decrypt_vigenere(ciphertext, keysizes):
     '''Returns the most likely key and plaintext message, given a bytearray ciphertext and list of possible keysizes'''
-    optimal_keysize = keysizes[np.argmin(find_keysize_distances(bytes, keysizes))]
-    return decrypt_vigenere_with_known_keysize(bytes, optimal_keysize)
+    optimal_keysize = keysizes[np.argmin(find_keysize_distances(ciphertext, keysizes))]
+    return decrypt_vigenere_with_known_keysize(ciphertext, optimal_keysize)
 
 
 # 1.7
 from Crypto.Cipher import AES
 def decrypt_AES_128_ECB(ciphertext, key):
-    '''Decrypts a ciphertext string from a known key, using AES-128 in ECB mode.'''
+    '''Decrypts a ciphertext byte array with a known key, using AES-128 in ECB mode.'''
     if len(key) != 16:
         raise ValueError('Key for AES-128 must be 16 bytes')
-    return AES.new(key, AES.MODE_ECB).decrypt(ciphertext)
+    return AES.new(key, AES.MODE_ECB).decrypt(ciphertext).decode()
 
 def decrypt_AES_128_ECB_base64(ciphertext_base64, key):
-    return decrypt_AES_128_ECB(str(base64_to_bytes(ciphertext_base64)), key)
+    '''Decrypts a ciphertext base64-encoded string with a known key, using AES-128 in ECB mode.'''
+    return decrypt_AES_128_ECB(base64_to_bytes(ciphertext_base64), key)
 
 
 # 1.8
@@ -144,21 +145,28 @@ def find_ECB_encryption(ciphertexts, block_size=16):
        due to low Hamming distance between blocks.'''
     hamming_distances = []
     for ct in ciphertexts:
-        n_blocks = len(ct) / block_size
+        n_blocks = len(ct) // block_size
         avg_distance = np.mean([hamming_distance(ct[i*block_size:(i+1)*block_size],
                                                  ct[j*block_size:(j+1)*block_size])
-                                for i in xrange(n_blocks)
-                                for j in xrange(i)])
+                                for i in range(n_blocks)
+                                for j in range(i)])
         hamming_distances.append(avg_distance)
         
     return ciphertexts[np.argmin(hamming_distances)]
 
 
 # 2.9
-def pad_pkcs7(bytes, block_size=16):
-    '''Pad a byte array using the PKCS #7 scheme.'''
-    bytes_needed = block_size * int(ceil(len(bytes) / float(block_size))) - len(bytes)
-    return bytes + bytearray([bytes_needed])*bytes_needed
+def to_bytes(s):
+    '''Converts a string or bytearray to bytes.'''
+    if type(s) is str:
+        return s.encode()
+    return bytes(s)
+
+def pad_pkcs7(b, block_size=16):
+    '''Pad a bytearray or string using the PKCS #7 scheme.'''
+    b = to_bytes(b)
+    bytes_needed = block_size - len(b) % block_size
+    return b + bytes([bytes_needed])*bytes_needed
 
 
 # 2.10
@@ -168,11 +176,13 @@ def encrypt_AES_128_ECB(plaintext, key):
     if len(key) != BLOCK_SIZE:
         raise ValueError('Key for AES-128 must be %d bytes' % BLOCK_SIZE)
     
-    padded_plaintext = str(pad_pkcs7(plaintext, BLOCK_SIZE))
+    padded_plaintext = pad_pkcs7(plaintext, BLOCK_SIZE)
     return AES.new(key, AES.MODE_ECB).encrypt(padded_plaintext)
 
+
 def encrypt_AES_128_ECB_base64(plaintext_base64, key):
-    return encrypt_AES_128_ECB(str(base64_to_bytes(plaintext_base64)), key)
+    return encrypt_AES_128_ECB(base64_to_bytes(plaintext_base64), key)
+
 
 def encrypt_AES_128_CBC(plaintext, key, IV):
     BLOCK_SIZE = 16
@@ -187,13 +197,14 @@ def encrypt_AES_128_CBC(plaintext, key, IV):
     padded_plaintext = pad_pkcs7(plaintext, BLOCK_SIZE)
     
     ciphertext = b''
-    for start_idx in xrange(0, len(padded_plaintext), BLOCK_SIZE):
-        block_cipher_input = fixed_xor(bytearray(IV), padded_plaintext[start_idx : start_idx+BLOCK_SIZE])
-        block_cipher_output = AES_128_ECB.encrypt(str(block_cipher_input))
+    for start_idx in range(0, len(padded_plaintext), BLOCK_SIZE):
+        block_cipher_input = fixed_xor(bytes(IV), padded_plaintext[start_idx : start_idx+BLOCK_SIZE])
+        block_cipher_output = AES_128_ECB.encrypt(bytes(block_cipher_input))
         ciphertext += block_cipher_output
         IV = block_cipher_output
     
     return ciphertext
+
 
 def decrypt_AES_128_CBC(ciphertext, key, IV):
     BLOCK_SIZE = 16
@@ -210,37 +221,39 @@ def decrypt_AES_128_CBC(ciphertext, key, IV):
     AES_128_ECB = AES.new(key, AES.MODE_ECB)
     
     plaintext = b''
-    for start_idx in xrange(0, len(ciphertext), BLOCK_SIZE):
+    for start_idx in range(0, len(ciphertext), BLOCK_SIZE):
         block_cipher_input = ciphertext[start_idx : start_idx+BLOCK_SIZE]
-        block_cipher_output = AES_128_ECB.decrypt(str(block_cipher_input))
-        plaintext += fixed_xor(bytearray(IV), bytearray(block_cipher_output))
+        block_cipher_output = AES_128_ECB.decrypt(bytes(block_cipher_input))
+        plaintext += fixed_xor(bytes(IV), bytes(block_cipher_output))
         IV = block_cipher_input
     
-    return plaintext
+    return plaintext.decode()
 
 
 # 2.11
 def generate_random_bytes(length=16):
     '''Generates a random 16-byte AES key'''
-    return ''.join(map(chr, np.random.randint(256, size=length)))
+    return bytes(list(np.random.randint(256, size=length)))
 
-def ECB_CBC_encryption_oracle(plaintext):
-    '''Oracle that randomly chooses ECB or CBC mode and encrypts with a random key and IV.'''
+def ECB_CBC_encryption_oracle(plaintext, print_cipher_mode=False):
+    '''Oracle that randomly chooses ECB or CBC mode and encrypts the plaintext string with a random key and IV.'''
     prepended_bytes = generate_random_bytes(np.random.randint(5,11))
     appended_bytes = generate_random_bytes(np.random.randint(5,11))
-    plaintext = str(pad_pkcs7(prepended_bytes + plaintext + appended_bytes))
+    plaintext = pad_pkcs7(prepended_bytes + to_bytes(plaintext) + appended_bytes)
     
     key, IV = generate_random_bytes(), generate_random_bytes()
     cipher = AES.new(key, AES.MODE_ECB) if np.random.randint(2) == 0 else AES.new(key, AES.MODE_CBC, IV=IV)
+    if print_cipher_mode:
+        print('MODE_ECB' if cipher.mode == 1 else 'MODE_CBC' if cipher.mode == 2 else 'Other')
     return cipher.encrypt(plaintext)
 
 from collections import Counter
 def detect_ECB_CBC_oracle(black_box, BLOCK_SIZE=16):
     '''Detector that determines if a black box is encrypting using ECB or CBC.'''
-    long_repeating_string = str(hex_to_bytes('0'*128))
+    long_repeating_string = hex_to_bytes('0'*128)
     
     ciphertext = black_box(long_repeating_string)
-    ciphertext_blocks = Counter([ciphertext[i:i+BLOCK_SIZE] for i in xrange(0,len(ciphertext),BLOCK_SIZE)])
+    ciphertext_blocks = Counter([ciphertext[i:i+BLOCK_SIZE] for i in range(0,len(ciphertext),BLOCK_SIZE)])
     ct_blocks_are_unique = max(ciphertext_blocks.values()) == 1
     return 'CBC' if ct_blocks_are_unique else 'ECB'
 
@@ -293,3 +306,46 @@ def find_unknown_string_from_appending_oracle():
 
 
 # 2.13
+def kv_parser(s):
+    return {i[:i.find('=')] : i[i.find('=')+1:] for i in s.strip().split('&') if i.find('=') > 0}
+
+import uuid
+def profile_for(useremail):
+    return f'email={useremail.replace("&", "").replace("=", "")}&uid={uuid.uuid4()}&role=user'
+
+def unpad_pkcs7(b, block_size=16):
+    '''Unpad a bytearray or string using the PKCS #7 scheme.'''
+    last_byte = ord(to_bytes(b[-1:]))
+    return b[:-last_byte]
+
+def encrypt_user_profile(useremail, key):
+    return encrypt_AES_128_ECB(profile_for(useremail), key)
+
+def decrypt_user_profile(ciphertext, key):
+    return kv_parser(unpad_pkcs7(decrypt_AES_128_ECB(ciphertext, key)))
+
+def construct_admin_ciphertext():
+    def oracle(useremail):
+        return encrypt_user_profile(useremail, consistent_unknown_key)
+
+    # probe for last block containing 'admin' and padding
+    probe_email = (AES.block_size - len('email=')) * chr(0) + pad_pkcs7('admin').decode()
+    admin_last_block = oracle(probe_email)[AES.block_size : 2*AES.block_size]
+
+    # probe block length
+    malicious_email = 'm@licio.us'
+    base_len = len(oracle(malicious_email))
+    while True:
+        malicious_email = 'x'+malicious_email
+        if len(oracle(malicious_email)) > base_len:
+            break
+    malicious_email = 'x'*len('user') + malicious_email
+
+    # copy-and-paste admin block
+    ct = oracle(malicious_email)
+    malicious_ct = ct[:-16] + admin_last_block
+
+    return malicious_ct
+
+
+# 2.14
