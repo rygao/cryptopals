@@ -325,6 +325,9 @@ def decrypt_user_profile(ciphertext, key):
     return kv_parser(unpad_pkcs7(decrypt_AES_128_ECB(ciphertext, key)))
 
 def construct_admin_ciphertext():
+    # generate consistent but unknown key
+    consistent_unknown_key = generate_random_bytes()
+    
     def oracle(useremail):
         return encrypt_user_profile(useremail, consistent_unknown_key)
 
@@ -345,7 +348,7 @@ def construct_admin_ciphertext():
     ct = oracle(malicious_email)
     malicious_ct = ct[:-16] + admin_last_block
 
-    return malicious_ct
+    return malicious_ct, consistent_unknown_key
 
 
 # 2.14
