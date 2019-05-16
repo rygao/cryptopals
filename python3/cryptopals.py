@@ -352,3 +352,67 @@ def construct_admin_ciphertext():
 
 
 # 2.14
+def prepending_ECB_oracle(plaintext, prefix, key):
+    '''Oracle that appends a mystery string to the plaintext input before encrypting via ECB.'''
+    unknown_string = base64_to_bytes('Um9sbGluJyBpbiBteSA1LjAKV2l0aCBteSByYWctdG9wIGRvd24gc28gbXkgaGFpciBjYW4gYmxvdwpUaGUgZ2lybGllcyBvbiBzdGFuZGJ5IHdhdmluZyBqdXN0IHRvIHNheSBoaQpEaWQgeW91IHN0b3A/IE5vLCBJIGp1c3QgZHJvdmUgYnkK')
+    plaintext = pad_pkcs7(prefix + to_bytes(plaintext) + unknown_string)
+    
+    return AES.new(key, AES.MODE_ECB).encrypt(plaintext)
+
+def find_unknown_string_from_prepending_oracle():
+    # generate consistent but unknown prefix
+    consistent_random_prefix = generate_random_bytes(np.random.randint(AES.block_size*10)+1)
+    # generate consistent but unknown key
+    consistent_unknown_key = generate_random_bytes()
+    
+    def oracle(plaintext):
+        return prepending_ECB_oracle(plaintext, consistent_random_prefix, consistent_unknown_key)
+    
+    # find prefix length
+    start_buffer_len = 0
+    while True:
+        ct = oracle(chr(0)*start_buffer_len)
+        blocks = [ct[i*AES.block_size : (i+1)*AES.block_size] for i in range(len(ct) // AES.block_size)]
+        
+        if max(Counter(blocks).values()) == 2:
+            break
+        
+        start_buffer_len += 1
+
+    # find unknown message, one byte at a time
+    start_idx = ct.find(Counter(blocks).most_common(1)[0][0]) + AES.block_size*2
+    hidden_string = b''
+    
+    while True:
+        idx_next_letter = len(hidden_string) + start_idx
+        idx_start_of_block = idx_next_letter - idx_next_letter%AES.block_size
+        short_pt = chr(0)*(AES.block_size-1-idx_next_letter%AES.block_size)
+        
+        ct_block_to_char_map = {}
+        for i in range(256):
+            # note that chr(128)..chr(255) do not properly convert to bytes via .encode()
+            pt = (chr(0)*start_buffer_len + short_pt).encode() + hidden_string + bytes([i])
+            ct = oracle(pt)
+            unknown_block = ct[idx_start_of_block:idx_start_of_block+AES.block_size]
+            ct_block_to_char_map[unknown_block] = bytes([i])
+
+        ct = oracle(chr(0)*start_buffer_len + short_pt)
+        unknown_block = ct[idx_start_of_block:idx_start_of_block+AES.block_size]
+        if unknown_block not in ct_block_to_char_map:
+            # signals end of message because padding bytes don't match any possible
+            return hidden_string[:-1].decode()
+        hidden_string += ct_block_to_char_map[unknown_block]
+
+
+# 2.15
+def unpad_pkcs7(b, block_size=16):
+    '''Unpad a bytearray or string using the PKCS #7 scheme, throwing exception if padding is invalid.'''
+    expected_padding_len = ord(to_bytes(b[-1:]))
+    
+    if expected_padding_len > block_size or to_bytes(b[-expected_padding_len:]) != bytes([expected_padding_len]*expected_padding_len):
+        raise Exception('Invalid PKCS#7 padding.')
+
+    return b[:-expected_padding_len]
+
+
+# 2.16
